@@ -43,7 +43,7 @@ function formatTimestamp(timestamp: number) {
 }
 
 function VoiceSession({ agentId, secureSessions }: VoiceSessionProps) {
-  // React state used by both voice and chat sessions.
+  // React state used by both voice and chat sessions. 
   const [conversationId, setConversationId] = useState<string>();
   const [error, setError] = useState<string>();
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
