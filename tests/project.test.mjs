@@ -37,7 +37,24 @@ test("keeps development public and production credentialed", async () => {
   assert.match(client, /startSession\(\{\s*conversationToken,/);
   assert.match(client, /startSession\(\{\s*signedUrl,/);
   assert.match(server, /process\.env\.ELEVENLABS_API_KEY/);
+  assert.match(server, /process\.env\.ELEVENLABS_SECRET_ARN/);
   assert.match(server, /process\.env\.ELEVENLABS_PROD_AGENT_ID/);
+  assert.match(server, /SecretsManagerClient/);
+  assert.match(server, /GetSecretValueCommand/);
   assert.match(server, /AbortSignal\.timeout\(10_000\)/);
   assert.match(server, /"Cache-Control": "no-store"/);
+});
+
+test("packages the standalone Next.js server for AWS Lambda", async () => {
+  const [dockerfile, dockerignore, startup] = await Promise.all([
+    readProjectFile("Dockerfile"),
+    readProjectFile(".dockerignore"),
+    readProjectFile("run.sh"),
+  ]);
+
+  assert.match(dockerfile, /aws-lambda-adapter:1\.0\.1/);
+  assert.match(dockerfile, /\.next\/standalone/);
+  assert.match(dockerfile, /\.next\/static/);
+  assert.match(dockerignore, /^\.env\*$/m);
+  assert.match(startup, /exec node server\.js/);
 });
