@@ -16,7 +16,7 @@ test("uses the standard Next.js runtime without Cloudflare scaffolding", async (
 
   assert.equal(packageJson.scripts.dev, "next dev");
   assert.equal(packageJson.scripts.build, "next build");
-  assert.equal(packageJson.scripts.start, "node .next/standalone/server.js");
+  assert.equal(packageJson.scripts.start, "next start");
   assert.ok(packageJson.dependencies.next);
 
   for (const text of [packageText, page, tokenRoute, signedUrlRoute]) {

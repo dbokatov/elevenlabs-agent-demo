@@ -11,7 +11,7 @@ type TranscriptEntry = {
   timestamp: number;
 };
 
-// Step 2: The user can choose one of these session types before connecting.
+// The user can choose one of these session types before connecting.
 type ConversationChannel = "voice" | "chat";
 
 type VoiceSessionProps = {
@@ -59,7 +59,7 @@ function VoiceSession({ agentId, secureSessions }: VoiceSessionProps) {
 
   // Configure the ElevenLabs SDK and react to events received from the session.
   const conversation = useConversation({
-    // Step 9 is already in place: log every connection-status change.
+    // Log every connection-status change for local diagnostics.
     onStatusChange: ({ status }) => {
       console.info("[ElevenLabs] Session status changed:", status);
     },
@@ -91,7 +91,7 @@ function VoiceSession({ agentId, secureSessions }: VoiceSessionProps) {
       pendingMessageStartedAtRef.current = null;
       setError(message);
     },
-    // Step 7 is already in place: add user and agent messages to the transcript.
+    // Add user and agent messages to the transcript.
     onMessage: ({ role, message }) => {
       const timestamp = Date.now();
 
@@ -217,7 +217,7 @@ function VoiceSession({ agentId, secureSessions }: VoiceSessionProps) {
   }
 
   // Development uses the public test agent ID. Production asks our backend for
-  // a short-lived signed WebSocket URL for the private WebexCC agent.
+  // a short-lived signed WebSocket URL for the private ElevenLabs agent.
   async function startChatConversation() {
     setError(undefined);
     setTranscript([]);
@@ -271,8 +271,7 @@ function VoiceSession({ agentId, secureSessions }: VoiceSessionProps) {
     }
   }
   
-  // STEP 6: It should prevent form submission, trim draftMessage, call
-  // conversation.sendUserMessage(message), and then clear draftMessage.
+  // Send a trimmed chat message and then clear the composer.
   function sendChatMessage(
     event: React.FormEvent<HTMLFormElement>,
   ) {
@@ -472,7 +471,7 @@ function VoiceSession({ agentId, secureSessions }: VoiceSessionProps) {
           </button>
         )}
         
-        {/* STEP 8: startVoiceConversation according to the value of channel. */}
+        {/* Start the selected channel, or end the active conversation. */}
         <button
           className={`start-button ${isConnected ? "end-button" : ""}`}
           type="button"

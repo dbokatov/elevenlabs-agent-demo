@@ -1,60 +1,178 @@
-# ElevenLabs Agent Demo
+# Voxline — ElevenLabs Agent Demo
 
-A standard Next.js application for voice and text conversations with two
-ElevenLabs agents:
+Voxline is a custom web interface for real-time voice and text conversations
+with an [ElevenLabs AI Agent](https://elevenlabs.io/docs/eleven-agents/overview).
+It demonstrates how to combine an ElevenLabs-hosted conversational agent with a
+Next.js application that can be packaged for AWS Lambda.
 
-- Development connects directly to a public test agent.
-- Production obtains short-lived credentials from server-side API routes and
-  connects to a private production agent.
+ElevenLabs hosts and operates the AI Agent, including the conversation runtime,
+voice, speech processing, model configuration, prompt, knowledge base, and
+tools configured in the ElevenLabs platform. This repository provides the web
+interface, creates short-lived production credentials, and contains optional
+AWS deployment packaging.
 
-## Requirements
+> This is a reference/demo project. Before exposing it publicly, add visitor
+> authentication and rate limiting to the credential endpoints.
+
+## User interface
+
+The application lets a user choose voice or text chat, start and end a session,
+view the transcript, mute a voice session, and inspect basic latency measurements.
+
+![Voxline voice and chat interface](public/screenshots/voxline-ui.png)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    User["User's browser"] --> UI["Next.js and React interface"]
+    UI -->|"Request short-lived credential"| API["Next.js API routes"]
+    LocalKey["Local environment key<br/>(local production-mode test)"] -.-> API
+    Secrets["AWS Secrets Manager<br/>(AWS deployment only)"] -.-> API
+    API -->|"Use server-side API key"| ElevenAPI["ElevenLabs API"]
+    ElevenAPI -->|"WebRTC token or signed WebSocket URL"| API
+    API --> UI
+    UI -->|"Direct voice or chat session"| Agent["ElevenLabs-hosted AI Agent"]
+```
+
+In production, the Next.js server is used only to obtain a temporary credential.
+After that credential is returned, the browser connects directly to ElevenLabs;
+the application server does not proxy the live audio or chat stream.
+
+## Solutions used
+
+| Responsibility | Solution |
+| --- | --- |
+| AI Agent, conversation runtime, voice, speech processing, prompt, knowledge base, and agent tools | ElevenLabs Agents Platform |
+| Browser conversation SDK | `@elevenlabs/react` |
+| Web interface and server-side credential endpoints | Next.js, React, and TypeScript |
+| Application runtime | Node.js 22 |
+| Production API-key source | Local environment for testing, or AWS Secrets Manager for AWS deployment |
+| Optional production compute | AWS Lambda container with AWS Lambda Web Adapter |
+| Container packaging | Docker |
+| Automated validation | GitHub Actions |
+
+The ElevenLabs agent definition is not stored in this repository. To reproduce
+the complete experience, create or configure an agent in ElevenLabs separately
+and supply its agent ID through environment variables.
+
+## Development and production behavior
+
+- **Development:** the browser connects directly to a public ElevenLabs test
+  agent using `ELEVENLABS_DEV_AGENT_ID`.
+- **Production:** the browser requests a WebRTC conversation token for voice or
+  a signed WebSocket URL for chat. Server-side routes use
+  `ELEVENLABS_PROD_AGENT_ID` and the permanent API key, which is never sent to
+  the browser.
+- **AWS:** when `ELEVENLABS_API_KEY` is absent, the server retrieves it from the
+  AWS Secrets Manager secret identified by `ELEVENLABS_SECRET_ARN`.
+
+## Prerequisites
 
 - Node.js 22.13 or newer
-- An ElevenLabs API key
-- A public development agent
-- A private production agent
+- npm
+- An ElevenLabs account
+- A public ElevenLabs agent for local development
+- An ElevenLabs API key and a private agent for production-mode testing
+- Optional: Docker and AWS resources for Lambda deployment
 
-## Environment
+## Configure the ElevenLabs agents
 
-Copy `.env.example` to `.env` and provide your values:
+Agent configuration lives in ElevenLabs and is not created by this repository.
+Before running the application:
 
-```dotenv
-ELEVENLABS_API_KEY=your_server_side_api_key
-ELEVENLABS_DEV_AGENT_ID=your_public_development_agent_id
-ELEVENLABS_PROD_AGENT_ID=your_private_production_agent_id
-ELEVENLABS_SECRET_ARN=arn:aws:secretsmanager:eu-west-1:123456789012:secret:your-secret-name
+1. Create an agent in the ElevenLabs Agents dashboard.
+2. Configure its system instructions, first message, voice, knowledge base, and
+   tools for your use case.
+3. For local development, use a public agent and copy its ID into
+   `ELEVENLABS_DEV_AGENT_ID`.
+4. For production, create or configure a private agent that requires
+   authentication and copy its ID into `ELEVENLABS_PROD_AGENT_ID`.
+5. Create an ElevenLabs API key only when testing or deploying the private-agent
+   flow. Keep that key server-side.
+
+Voice and text sessions share the selected ElevenLabs agent. The application
+sets text-only mode when the user selects Chat.
+
+## Get started locally
+
+1. Clone the repository and install dependencies:
+
+   ```bash
+   npm ci
+   ```
+
+2. Copy the environment template:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Set at least the development agent ID:
+
+   ```dotenv
+   ELEVENLABS_DEV_AGENT_ID=your_public_development_agent_id
+   ```
+
+4. Start the development server:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Open [http://localhost:3000](http://localhost:3000).
+
+Your browser will request microphone access when you start a voice conversation.
+Text chat does not require microphone permission.
+
+## Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `ELEVENLABS_DEV_AGENT_ID` | Development | Public agent used directly by the browser during `npm run dev` |
+| `ELEVENLABS_PROD_AGENT_ID` | Production | Private agent used when creating short-lived credentials |
+| `ELEVENLABS_API_KEY` | Local production-mode test | Server-side ElevenLabs API key; never prefix it with `NEXT_PUBLIC_` |
+| `ELEVENLABS_SECRET_ARN` | AWS production | ARN of a JSON secret containing `ELEVENLABS_API_KEY` |
+
+For an AWS deployment, the secret value must be JSON:
+
+```json
+{
+  "ELEVENLABS_API_KEY": "your_server_side_api_key"
+}
 ```
 
-Never prefix the API key with `NEXT_PUBLIC_`; that would expose it to browser
-code. `.env` files are ignored by Git. Local development reads
-`ELEVENLABS_API_KEY` directly. AWS Lambda omits that value and uses
-`ELEVENLABS_SECRET_ARN` to retrieve a JSON secret containing the
-`ELEVENLABS_API_KEY` field at runtime.
-
-## Development
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000`. Development uses
-`ELEVENLABS_DEV_AGENT_ID` directly and does not call the credential endpoints.
+Do not commit `.env` files or permanent API keys. The included ignore files
+exclude them from Git and Docker build contexts.
 
 ## Production-mode test
+
+Add `ELEVENLABS_API_KEY` and `ELEVENLABS_PROD_AGENT_ID` to `.env`, then run:
 
 ```bash
 npm run build
 npm run start
 ```
 
-Production uses `ELEVENLABS_PROD_AGENT_ID`. The browser requests a WebRTC token
-for voice or a signed WebSocket URL for chat. The API key stays on the server.
+Production mode exercises the server-side token and signed-URL routes while
+keeping the permanent ElevenLabs API key off the client.
 
-## AWS Lambda container
+## AWS deployment packaging
 
-The production image uses the standard Next.js standalone server with AWS
-Lambda Web Adapter. Build it for the same architecture as the Lambda function:
+The included Dockerfile packages the standalone Next.js server for an ARM64 AWS
+Lambda container using AWS Lambda Web Adapter. The Lambda execution role needs
+`secretsmanager:GetSecretValue` permission for the exact secret configured by
+`ELEVENLABS_SECRET_ARN`.
+
+This repository contains application packaging, not a complete AWS environment.
+It does not create ECR, Lambda, IAM, Secrets Manager, CloudFront, DNS, or network
+resources. Provision those separately before enabling deployment automation.
+
+The GitHub Actions AWS publishing job is currently commented out. Pull requests
+and pushes still run the validation job, but no image is published and no Lambda
+function is updated automatically.
+
+To prepare an image manually:
 
 ```bash
 docker buildx build \
@@ -64,17 +182,38 @@ docker buildx build \
   -t voxline-elevenlabs-agent-demo:local .
 ```
 
-The image contains no `.env` files. In AWS, configure only
-`ELEVENLABS_PROD_AGENT_ID` and `ELEVENLABS_SECRET_ARN`, and grant the Lambda
-execution role `secretsmanager:GetSecretValue` for that exact secret ARN.
+## Security considerations
 
-## Validation
+- The permanent ElevenLabs API key remains server-side.
+- Credential responses use `Cache-Control: no-store`.
+- Calls from the server to ElevenLabs have a 10-second timeout and sanitized
+  client-facing errors.
+- The current credential endpoints do not authenticate website visitors or
+  enforce rate limits. Add both controls before public production use.
+- AWS infrastructure controls such as CloudFront or Lambda Function URL access
+  do not replace application-level visitor authentication.
 
-```bash
-npm run check
-```
+## Data handling
 
-This runs linting, TypeScript checking, project tests, and the production build.
+- Browser microphone audio, user messages, agent responses, and conversation
+  metadata are transmitted to ElevenLabs as part of the conversation.
+- This application keeps the visible transcript only in browser memory for the
+  current page session; it does not write transcripts to a local database.
+- ElevenLabs-side retention and processing depend on the settings and terms of
+  the ElevenLabs workspace and agent. Review those settings before processing
+  personal or sensitive data.
+- Do not log temporary credentials, API keys, or sensitive transcript content.
+
+## Available commands
+
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the local development server |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Check TypeScript without emitting files |
+| `npm test` | Run the project tests |
+| `npm run build` | Create the production Next.js build |
+| `npm run check` | Run lint, typecheck, tests, and production build |
 
 ## Project structure
 
@@ -86,11 +225,25 @@ app/
   page.tsx              Environment selection and page layout
   voice-agent.tsx       ElevenLabs React SDK integration and UI
 lib/
-  elevenlabs.ts         Shared server-side ElevenLabs credential logic
+  elevenlabs.ts         Shared credential and Secrets Manager logic
 public/
+  screenshots/          README interface image
   favicon.svg
 tests/
-  project.test.mjs
-Dockerfile              Lambda container image
-run.sh                  Next.js container startup command
+  project.test.mjs      Architecture and packaging checks
+.github/workflows/
+  ci-cd.yml             CI validation; AWS publishing currently disabled
+Dockerfile              Optional AWS Lambda container image
+run.sh                  Standalone Next.js container startup command
 ```
+
+## Current scope
+
+The project intentionally does not include user authentication, persistent
+transcript storage, a database, CRM integration, MCP servers, or the source
+configuration of the ElevenLabs agent. Those capabilities can be added based
+on the deployment's requirements.
+
+## License
+
+This project is available under the [MIT License](LICENSE).
