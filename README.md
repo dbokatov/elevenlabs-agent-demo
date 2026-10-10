@@ -23,21 +23,145 @@ view the transcript, mute a voice session, and inspect basic latency measurement
 
 ## Architecture
 
+### AWS production overview
+
 ```mermaid
 flowchart LR
-    User["User's browser"] --> UI["Next.js and React interface"]
-    UI -->|"Request short-lived credential"| API["Next.js API routes"]
-    LocalKey["Local environment key<br/>(local production-mode test)"] -.-> API
-    Secrets["AWS Secrets Manager<br/>(AWS deployment only)"] -.-> API
-    API -->|"Use server-side API key"| ElevenAPI["ElevenLabs API"]
-    ElevenAPI -->|"WebRTC token or signed WebSocket URL"| API
-    API --> UI
-    UI -->|"Direct voice or chat session"| Agent["ElevenLabs-hosted AI Agent"]
+    Browser["User browser"] --> CF["Amazon CloudFront"]
+
+    subgraph AWS["AWS infrastructure"]
+        CF -->|"OAC-signed origin request"| URL["Private Lambda Function URL"]
+        URL --> APP["AWS Lambda container<br/>Lambda Web Adapter + Next.js"]
+        APP -->|"Read permanent API key"| SM["AWS Secrets Manager"]
+    end
+
+    APP -->|"Request temporary credential"| API["ElevenLabs API"]
+    API -->|"Conversation token or signed URL"| APP
+
+    Browser ==>|"Direct session after authentication<br/>WebRTC voice or WebSocket chat"| Agent["ElevenLabs-hosted AI Agent"]
 ```
 
-In production, the Next.js server is used only to obtain a temporary credential.
-After that credential is returned, the browser connects directly to ElevenLabs;
-the application server does not proxy the live audio or chat stream.
+CloudFront signs the origin request to the private Lambda Function URL using
+Origin Access Control (OAC); the user's browser does not create that AWS
+signature. Next.js runs inside the Lambda container through Lambda Web Adapter,
+not as a separate compute service.
+
+In production, the AWS application path serves the interface and obtains a
+temporary ElevenLabs credential. After that credential is returned, the browser
+connects directly to ElevenLabs. CloudFront and Lambda do not proxy the live
+audio or chat stream.
+
+### Voice conversation flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Browser as Browser + ElevenLabs SDK
+    participant CF as CloudFront
+    participant URL as Private Lambda Function URL
+    participant App as Lambda Web Adapter + Next.js
+    participant SM as AWS Secrets Manager
+    participant API as ElevenLabs API
+    participant Agent as ElevenLabs AI Agent
+
+    User->>Browser: Open application
+    Browser->>CF: GET /
+    CF->>URL: OAC-signed origin request
+    URL->>App: Forward request
+    App-->>URL: Return HTML, JavaScript, and CSS
+    URL-->>CF: Return application
+    CF-->>Browser: Load application
+
+    User->>Browser: Click Start voice conversation
+    Browser->>Browser: Request microphone permission
+    Browser->>CF: GET /api/elevenlabs/conversation-token
+    CF->>URL: OAC-signed origin request
+    URL->>App: Run Next.js API route
+
+    opt API key is not cached in the warm Lambda instance
+        App->>SM: Read ELEVENLABS_API_KEY
+        SM-->>App: Permanent API key
+    end
+    App->>API: Request conversation token
+    API-->>App: Short-lived conversation token
+    App-->>URL: Return token with Cache-Control: no-store
+    URL-->>CF: Return response
+    CF-->>Browser: Return conversation token
+
+    Browser->>Agent: Establish direct WebRTC session using token
+
+    loop Active voice conversation
+        Browser->>Agent: Microphone audio
+        Agent-->>Browser: Synthesized audio, transcript, and status events
+    end
+
+    User->>Browser: Click End conversation
+    Browser->>Agent: Close WebRTC session
+```
+
+The application requests microphone permission before it asks the ElevenLabs
+React SDK to start the WebRTC session. The initial permission-check stream is
+closed immediately; the SDK manages microphone access during the active
+conversation.
+
+### Chat conversation flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Browser as Browser + ElevenLabs SDK
+    participant CF as CloudFront
+    participant URL as Private Lambda Function URL
+    participant App as Lambda Web Adapter + Next.js
+    participant SM as AWS Secrets Manager
+    participant API as ElevenLabs API
+    participant Agent as ElevenLabs AI Agent
+
+    User->>Browser: Select Chat
+    User->>Browser: Click Start chat conversation
+    Browser->>CF: GET /api/elevenlabs/signed-url
+    CF->>URL: OAC-signed origin request
+    URL->>App: Run Next.js API route
+
+    opt API key is not cached in the warm Lambda instance
+        App->>SM: Read ELEVENLABS_API_KEY
+        SM-->>App: Permanent API key
+    end
+    App->>API: Request signed WebSocket URL
+    API-->>App: Short-lived signed URL
+    App-->>URL: Return URL with Cache-Control: no-store
+    URL-->>CF: Return response
+    CF-->>Browser: Return signed URL
+
+    Browser->>Agent: Open direct text-only WebSocket session
+
+    loop Active chat conversation
+        User->>Browser: Enter and send message
+        Browser->>Agent: Send text over WebSocket
+        Agent-->>Browser: Return agent message and status events
+        Browser-->>User: Update transcript
+    end
+
+    User->>Browser: Click End conversation
+    Browser->>Agent: Close WebSocket session
+```
+
+Chat mode does not request microphone permission. Both modes use AWS only to
+obtain the short-lived credential; the ongoing session is between the browser
+and ElevenLabs.
+
+### Local development flow
+
+```mermaid
+flowchart LR
+    Browser["User browser"] --> App["Local Next.js application"]
+    App --> SDK["ElevenLabs React SDK"]
+    SDK -->|"Public development agent ID"| Agent["ElevenLabs-hosted AI Agent"]
+```
+
+Local development does not use CloudFront, Lambda, Secrets Manager, or the two
+credential routes. The browser uses `ELEVENLABS_DEV_AGENT_ID` to connect to the
+public development agent directly.
 
 ## Solutions used
 
